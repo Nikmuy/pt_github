@@ -2,7 +2,7 @@ version: '3.8'
 x-postgres-common:
   &postgres-common
   image: postgres:14-alpine
-  user: postgres
+  user: ${DB_USER}
   restart: always
   healthcheck:
     test: 'pg_isready -U postgres --dbname=pt_db'
@@ -14,20 +14,15 @@ services:
   bot:
     container_name: bot_container
     image: bot_image
-#    build:
-#      context: ./bot_image_dir
-#      dockerfile: Dockerfile
+    env_file:
+      - .env
+
   database:
     <<: *postgres-common
-#    container_name: db_container
-#    image: db_image
-#    build:
-#      context: ./db_image_dir
-#      dockerfile: Dockerfile
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_DB: pt_db
-      POSTGRES_PASSWORD: Qq12345
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_HOST_AUTH_METHOD: "scram-sha-256\nhost replication all 0.0.0.0/0 md5"
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     ports:
@@ -42,24 +37,20 @@ services:
       -c log_replication_commands=on
     container_name: db_container
     image: db_image
-#    build:
-#      context: ./db_image_dir
-#      dockerfile: Dockerfile
+    env_file:
+      - .env
 
   database_replica:
     <<: *postgres-common
     container_name: db_repl_container
     image: db_repl_image
-#    build:
-#      context: ./db_repl_image_dir
-#      dockerfile: Dockerfile
     ports:
       - "5433:5432"
     environment:
-      PGUSER: repl_user
-      PGPASSWORD: deb
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Qq12345
+      PGUSER: ${DB_REPL_USER}
+      PGPASSWORD: ${DB_REPL_PASSWORD}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     command: |
       bash -c "
       log_directory=/var/log/postgres/
@@ -74,13 +65,7 @@ services:
       chmod 0700 /var/lib/postgresql/data
       postgres
       "
-#    image: db_repl_image
-#    container_name: db_repl_container
-#    build:
-#      context: ./db_repl_image_dir
-#      dockerfile: Dockerfile
+    env_file:
+      - .env
     depends_on:
       - database
-  env_file:
-      - .env
-
