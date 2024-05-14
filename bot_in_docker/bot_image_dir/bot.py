@@ -81,7 +81,7 @@ def get_repl_logs (update: Update, context):
     except (Exception, Error) as error:
         update.message.reply_text(str(error))
     try:
-        stdin, stdout, stderr = client.exec_command("docker logs db_container 2>&1 | grep 'replica'")
+        stdin, stdout, stderr = client.exec_command("cat /tmp/pg.log | grep 'replica'")
     except (Exception, Error) as error:
          update.message.reply_text(str(error))
     try:
