@@ -81,7 +81,7 @@ def get_repl_logs (update: Update, context):
     except (Exception, Error) as error:
         update.message.reply_text(str(error))
     try:
-        stdin, stdout, stderr = client.exec_command("cat /tmp/pg.log | grep 'replica'")
+        stdin, stdout, stderr = client.exec_command("cat /tmp/pg.log | grep 'replica' | tail -n 50")
     except (Exception, Error) as error:
          update.message.reply_text(str(error))
     try:
