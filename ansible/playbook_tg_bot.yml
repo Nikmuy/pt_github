@@ -1,13 +1,14 @@
 ---
 - hosts: db_host
   become: yes
-  vars:
-    wal_level: replica # Уровень WAL-логирования
-    max_wal_senders: 5 # Количество слотов для отправки WAL-логов
-
+  #vars:
+  #  wal_level: replica # Уровень WAL-логирования
+  #  max_wal_senders: 5 # Количество слотов для отправки WAL-логов
+  vars_files:
+  - vars.yml
   tasks:
     - name: apt
-      become: true
+      become: yes
       apt:
 #        update: yes
         update_cache: yes
@@ -35,7 +36,7 @@
       become_user: postgres
       postgresql_db:
 #        db: pt_db
-        name: pt_db
+        name: "{{ DB_DATABASE }}"
 #        owner: postgres
 #        password: postgres
         state: present
@@ -45,9 +46,9 @@
       become: yes
       become_user: postgres
       postgresql_user:
-        db: pt_db
-        name: postgres
-        password: postgres
+        db: "{{ DB_DATABASE }}"
+        name: "{{ DB_USER }}"
+        password: "{{ DB_PASSWORD }}"
 
     - name:  SQL
       become: yes
@@ -88,9 +89,6 @@
             id serial PRIMARY KEY,
             number VARCHAR(255)
           );
-
-  
-
     - name: Allow remote auth
       become: yes
       become_user: postgres
@@ -119,7 +117,7 @@
       become: yes
       become_user: postgres
       lineinfile:
-        path: /etc/postgresql/15/main/postgresql.conf # Измените версию PostgreSQL, если необходимо
+        path: /etc/postgresql/15/main/postgresql.conf 
         regexp: "{{ item.regexp }}"
         line: "{{ item.line }}"
       loop:
@@ -148,18 +146,23 @@
         - regexp: "^#password_encryption = 'scram-sha-256'"
           line: "password_encryption = 'scram-sha-256'"
       notify: Restart PostgreSQL
+
     - name: Create replication user (Master)
+      become: yes
+      become_user: postgres
       postgresql_user:
-        name: replicator
-        password: "replicator"
+        name: "{{ DB_REPL_USER }}"
+        password: "{{ DB_REPL_PASSWORD }}"
         role_attr_flags: REPLICATION
-      when: inventory_hostname == 'db_server'
+
   handlers:
     - name: Restart PostgreSQL
       service:
         name: postgresql
         state: restarted
 - hosts: db_repl_host
+  vars_files:
+  - vars.yml
   tasks:
     - name: apt
       become: yes
@@ -205,6 +208,8 @@
 
 
 - hosts: bot_host
+  vars_files:
+  - vars.yml
   become: yes
   tasks:
     - name: Install required packages
