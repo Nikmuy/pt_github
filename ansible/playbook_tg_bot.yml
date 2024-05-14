@@ -1,0 +1,246 @@
+---
+- hosts: db_host
+  become: yes
+  vars:
+    wal_level: replica # Уровень WAL-логирования
+    max_wal_senders: 5 # Количество слотов для отправки WAL-логов
+
+  tasks:
+    - name: apt
+      become: true
+      apt:
+#        update: yes
+        update_cache: yes
+        name:
+          - python3
+          - python3-pip
+          - python3-dev
+          - python3-psycopg2
+    # upgrade: yes
+
+    - name: Install PostgreSQL
+      apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+
+        state: present
+        install_recommends: yes
+    - service:
+        name: postgresql
+        state: started
+
+    - name: Create database (Master)
+      become: yes
+      become_user: postgres
+      postgresql_db:
+#        db: pt_db
+        name: pt_db
+#        owner: postgres
+#        password: postgres
+        state: present
+      register: db_created
+
+    - name: Change postgres password
+      become: yes
+      become_user: postgres
+      postgresql_user:
+        db: pt_db
+        name: postgres
+        password: postgres
+
+    - name:  SQL
+      become: yes
+      become_user: postgres
+      postgresql_query:
+        db: pt_db
+        query: |
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'pt_db') THEN
+              CREATE DATABASE pt_db;
+            END IF;
+          END $$;
+          
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT * FROM pg_replication_slots WHERE slot_name ='replication_slot') THEN
+              PERFORM pg_create_physical_replication_slot('replication_slot');
+            END IF;
+          END $$;
+
+    - name: emails
+      become: yes
+      become_user: postgres
+      postgresql_query:
+        db: pt_db
+        query: |
+          CREATE TABLE IF NOT EXISTS emails (
+            id serial PRIMARY KEY,
+            email VARCHAR(255)
+          );
+
+    - name: numbers
+      become: yes
+      become_user: postgres
+      postgresql_query:
+        db: pt_db
+        query: |
+          CREATE TABLE IF NOT EXISTS numbers (
+            id serial PRIMARY KEY,
+            number VARCHAR(255)
+          );
+
+  
+
+    - name: Allow remote auth
+      become: yes
+      become_user: postgres
+      postgresql_pg_hba:
+        dest: /etc/postgresql/15/main/pg_hba.conf
+        contype: "host"
+        databases: "all"
+        users: "all"
+        source: "0.0.0.0/0"
+        method: "md5"
+        create: true
+
+    - name: Allow remote replication
+      become: yes
+      become_user: postgres
+      postgresql_pg_hba:
+        dest: /etc/postgresql/15/main/pg_hba.conf
+        contype: "host"
+        databases: "replication"
+        users: "all"
+        source: "0.0.0.0/0"
+        method: "md5"
+        create: true
+
+    - name: Configure PostgreSQL settings
+      become: yes
+      become_user: postgres
+      lineinfile:
+        path: /etc/postgresql/15/main/postgresql.conf # Измените версию PostgreSQL, если необходимо
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - regexp: "^#listen_addresses = 'localhost'"
+          line: "listen_addresses = '*'"
+        - regexp: "^#max_connections = 100"
+          line: "max_connections = 100"
+        - regexp: "^#log_replication_commands = off"
+          line: "log_replication_commands = on"
+        - regexp: "^#unix_socket_directories = '/var/run/postgresql'"
+          line: "unix_socket_directories = '/var/run/postgresql'"
+        - regexp: "^#logging_collector = off"
+          line: "logging_collector = on"
+        - regexp: "^#log_directory = 'pg_log'"
+          line: "log_directory = '/tmp/'"
+        - regexp: "^#log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'"
+          line: "log_filename = 'pg.log'"
+        - regexp: "^#log_file_mode = 0600"
+          line: "log_file_mode = 0664"
+        - regexp: "^#wal_level = replica"
+          line: "wal_level = replica"
+        - regexp: "^#max_wal_senders = 10"
+          line: "max_wal_senders = 10"
+        - regexp: "^#wal_log_hints = on"
+          line: "wal_log_hints = on"
+        - regexp: "^#password_encryption = 'scram-sha-256'"
+          line: "password_encryption = 'scram-sha-256'"
+      notify: Restart PostgreSQL
+    - name: Create replication user (Master)
+      postgresql_user:
+        name: replicator
+        password: "replicator"
+        role_attr_flags: REPLICATION
+      when: inventory_hostname == 'db_server'
+  handlers:
+    - name: Restart PostgreSQL
+      service:
+        name: postgresql
+        state: restarted
+- hosts: db_repl_host
+  tasks:
+    - name: apt
+      become: yes
+      apt:
+#        update: yes
+        update_cache: yes
+        name:
+          - python3
+          - python3-pip
+          - python3-dev
+          - python3-psycopg2
+
+    - name: Install PostgreSQL
+      become: yes
+      apt:
+        name:
+        - postgresql
+        - postgresql-contrib
+#          - python3-pip
+#          - python3-dev
+#          - python3-venv
+#          - python3-psycopg2
+        state: present
+        install_recommends: yes
+    - name: start postgres
+      service:
+        name: postgresql
+        state: started
+
+    - name: Clear replication directory
+      become: yes
+      ansible.builtin.file:
+        state: absent
+        path: /var/lib/postgresql/data
+
+    - name: Start replication process
+      become: yes
+      become_user: postgres
+      environment:
+        PGUSER: postgres
+        PGPASSWORD: postgres
+      shell: pg_basebackup --pgdata=/var/lib/postgresql/data -R --slot=replication_slot --host="192.168.58.155"
+
+
+- hosts: bot_host
+  become: yes
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - git
+          - python3
+          - python3-pip
+          - libpq-dev
+          - python3-virtualenv  
+        state: present
+
+    - name: Clone repository from GitHub
+      git:
+        repo: https://github.com/Nikmuy/pt_github.git
+        dest: /home/deb/bot_ansible
+        version: tg_bot
+
+    - name: Install Python modules
+      become: yes
+      pip:
+        virtualenv: /opt/tg-bot/venv
+        requirements: "/home/deb/bot_ansible/bot_in_docker/bot_image_dir/requirements.txt"
+
+    - name: Copy .env file to BOT_HOST
+      become: yes
+      copy:
+        src: ".env"
+        dest: "/home/deb/bot_ansible/bot_in_docker/bot_image_dir/.env"
+    - name: Start bot
+      become: yes
+      command: /opt/tg-bot/venv/bin/python3.11 /home/deb/bot_ansible/bot_in_docker/bot_image_dir/bot.py
+    
+    
+  handlers:
+    - name: Restart PostgreSQL
+      service:
+        name: postgresql
+        state: restarted
