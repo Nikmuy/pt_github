@@ -224,24 +224,24 @@
 
     - name: Clone repository from GitHub
       git:
-        repo: https://github.com/Nikmuy/pt_github.git
+        repo: https://github.com/Nikmuy/tg_bot_pt.git
         dest: /home/deb/bot_ansible
-        version: tg_bot
 
     - name: Install Python modules
       become: yes
       pip:
         virtualenv: /opt/tg-bot/venv
-        requirements: "/home/deb/bot_ansible/bot_in_docker/bot_image_dir/requirements.txt"
+        requirements: "/home/deb/bot_ansible/requirements.txt"
 
     - name: Copy .env file to BOT_HOST
       become: yes
       copy:
         src: ".env"
-        dest: "/home/deb/bot_ansible/bot_in_docker/bot_image_dir/.env"
+        dest: "/home/deb/bot_ansible/.env"
+
     - name: Start bot
       become: yes
-      command: /opt/tg-bot/venv/bin/python3.11 /home/deb/bot_ansible/bot_in_docker/bot_image_dir/bot.py
+      command: /opt/tg-bot/venv/bin/python3.11 /home/deb/bot_ansible/bot.py
     
     
   handlers:
