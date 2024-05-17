@@ -1,6 +1,8 @@
 import logging
 import re
 import psycopg2
+import subprocess
+
 from psycopg2 import Error
 from telegram import Update, ForceReply, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
@@ -70,27 +72,10 @@ def cancel(update, _):
     return ConversationHandler.END
 
 def get_repl_logs (update: Update, context):
-    host = os.getenv('RM_HOST')
-    port = os.getenv('RM_PORT')
-    username = os.getenv('RM_USER')
-    password = os.getenv('RM_PASSWORD')
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        client.connect(hostname=host, username=username, password=password, port=port)
-    except (Exception, Error) as error:
-        update.message.reply_text(str(error))
-    try:
-        stdin, stdout, stderr = client.exec_command("docker logs db_container 2>&1 | grep 'replica'")
-    except (Exception, Error) as error:
-         update.message.reply_text(str(error))
-    try:
-        data = stdout.read() + stderr.read()
-        client.close()
-        data = str(data).replace('\\n', '\n').replace('\\t', '\t')[2:-1]
-        update.message.reply_text(data) # Отправляем сообщение пользователю
-    except (Exception, Error) as error:
-        update.message.reply_text(str(error))
+    command = ("cat /tmp/pg.log | grep 'replication'")
+    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+    data = str(result.stdout).replace('\\n', '\n').replace('\\t', '\t')[2:-1]
+    update.message.reply_text(data)
     return ConversationHandler.END # Завершаем работу обработчика диалога
 
 def get_phone_numbers(update: Update, context):
@@ -349,7 +334,7 @@ def get_critical (update: Update, context):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(hostname=host, username=username, password=password, port=port)
-    stdin, stdout, stderr = client.exec_command('grep "CRITICAL" /var/log/syslog | tail -n 5')
+    stdin, stdout, stderr = client.exec_command('journalctl -p crit')
     data = stdout.read() + stderr.read()
     client.close()
     data = str(data).replace('\\n', '\n').replace('\\t', '\t')[2:-1]
@@ -394,7 +379,7 @@ def get_services (update: Update, context):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(hostname=host, username=username, password=password, port=port)
-    stdin, stdout, stderr = client.exec_command('systemctl')
+    stdin, stdout, stderr = client.exec_command('systemctl list-units --type=service --state=running')
     data = stdout.read() + stderr.read()
     client.close()
     data = str(data).replace('\\n', '\n').replace('\\t', '\t')[2:-1]
@@ -433,7 +418,7 @@ def find_email (update: Update, context):
     emailList = emailRegex.findall(user_input) # Ищем почты
     if not emailList: # Обрабатываем случай, когда почт нет
         update.message.reply_text('Почты не найдены')
-        return # Завершаем выполнение функции
+        return  ConversationHandler.END
     
     emails = '' # Создаем строку, в которую будем записывать номера телефонов
     for i in range(len(emailList)):
@@ -450,7 +435,7 @@ def find_phone_number (update: Update, context):
     phoneNumberList = phoneNumRegex.findall(user_input) # Ищем номера телефонов
     if not phoneNumberList: # Обрабатываем случай, когда номеров телефонов нет
         update.message.reply_text('Телефонные номера не найдены')
-        return # Завершаем выполнение функции
+        return ConversationHandler.END # Завершаем выполнение функции
     
     phoneNumbers = '' # Создаем строку, в которую будем записывать номера телефонов
     for i in range(len(phoneNumberList)):
@@ -463,12 +448,12 @@ def find_phone_number (update: Update, context):
 
 def verify_password (update: Update, context):
     user_input = update.message.text # Получаем текст для проверки пароля
-    passwordRegex = re.compile(r'^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])[0-9a-zA-Z!@#$%^&*()]{8,}$')
+    passwordRegex = re.compile(r'^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[!@#$%^&*()])(.{8,})$')
     passwordCheck = passwordRegex.match(user_input) # проверка пароля
 
     if  passwordCheck: # Обрабатываем случай, когда пароль прошёл проверку
         update.message.reply_text(f"Поздравляю, твой пароль '{user_input}' прошёл проверку и является сложным")
-        return # Завершаем выполнение функции
+        return ConversationHandler.END # Завершаем выполнение функции
     else:
         update.message.reply_text('Простой пароль') # Отправляем сообщение пользователю
     return ConversationHandler.END # Завершаем работу обработчика диалога
@@ -512,6 +497,14 @@ def main():
         },
          fallbacks=[CommandHandler('cancel', cancel)],
     )
+    conv_handler_apt_list = ConversationHandler(
+        entry_points=[CommandHandler('get_apt_list', get_apt_listCommand)
+        ],
+        states={
+            'get_apt_list': [MessageHandler(Filters.text & ~Filters.command,get_apt_list)],
+        },
+         fallbacks=[CommandHandler('cancel', cancel)],
+    )
 		
 	# Регистрируем обработчики команд
     dp.add_handler(CommandHandler("start", start))
@@ -534,6 +527,7 @@ def main():
     dp.add_handler(CommandHandler("get_repl_logs", get_repl_logs))
     dp.add_handler(CommandHandler("get_emails", get_emails))
     dp.add_handler(CommandHandler("get_phone_numbers", get_phone_numbers))
+    dp.add_handler(conv_handler_apt_list)
 	# Регистрируем обработчик текстовых сообщений
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
     

@@ -14,6 +14,8 @@ services:
   bot:
     container_name: bot_container
     image: bot_image
+    volumes:
+          - pg_logs:/tmp/
     env_file:
       - .env
 
@@ -34,9 +36,15 @@ services:
       -c max_wal_senders=10
       -c max_replication_slots=10
       -c hot_standby_feedback=on
+      -c logging_collector=on
       -c log_replication_commands=on
+      -c log_directory=/tmp/
+      -c log_filename=pg.log
+      -c log_file_mode=0666
     container_name: db_container
     image: db_image
+    volumes:
+      - pg_logs:/tmp/
     env_file:
       - .env
 
@@ -63,9 +71,12 @@ services:
       done
       echo 'Backup done, starting replica...'
       chmod 0700 /var/lib/postgresql/data
+      su - postgres -c '/usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/data'
       postgres
       "
     env_file:
       - .env
     depends_on:
       - database
+volumes:
+  pg_logs:
