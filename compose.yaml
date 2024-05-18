@@ -16,6 +16,7 @@ services:
     image: bot_image
     volumes:
           - pg_logs:/tmp/
+    build: ./bot
     env_file:
       - .env
 
@@ -43,6 +44,7 @@ services:
       -c log_file_mode=0666
     container_name: db_container
     image: db_image
+    build: ./db
     volumes:
       - pg_logs:/tmp/
     env_file:
@@ -74,6 +76,7 @@ services:
       su - postgres -c '/usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/data'
       postgres
       "
+    build: ./db_repl
     env_file:
       - .env
     depends_on:
