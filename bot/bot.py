@@ -334,7 +334,7 @@ def get_critical (update: Update, context):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(hostname=host, username=username, password=password, port=port)
-    stdin, stdout, stderr = client.exec_command('journalctl -p crit')
+    stdin, stdout, stderr = client.exec_command('journalctl -p crit -n 5 -q')
     data = stdout.read() + stderr.read()
     client.close()
     data = str(data).replace('\\n', '\n').replace('\\t', '\t')[2:-1]
